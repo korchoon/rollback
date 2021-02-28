@@ -63,7 +63,7 @@ namespace Mk.Scopes {
 
             _disposing = true;
             IDisposable cur = null;
-            while (TryDequeue(ref cur)) {
+            while (TryPop(ref cur)) {
                 Assert.IsFalse(IsDisposed, "Already disposed");
                 cur.Dispose();
             }
@@ -73,7 +73,7 @@ namespace Mk.Scopes {
             IsDisposed = true;
         }
 
-        bool TryDequeue(ref IDisposable value) {
+        bool TryPop(ref IDisposable value) {
             if (_stack.Count == 0) return false;
 
             value = _stack.Last.Value;
