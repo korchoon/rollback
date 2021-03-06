@@ -1,6 +1,7 @@
-# Scopes - a better way to Dispose
+# IScopes - a better way to Dispose
 
-Scope is a new resource management, decoupling pattern, an alternative to Dispose. It provides a `Scope` dependency where you add the dispose logic dynamically, which then will be invoked in stack-like order by a caller.
+The IScope is new resource management, decoupling pattern, an alternative to Dispose. 
+It's a container where you put actions that will be executed on Dispose.
 
 The examples are intented for Unity developers. However, source code doesn't have any dependencies, so you could use it in vanilla C#.
 
@@ -17,16 +18,14 @@ When I analyze, use or support some service, one of the first questions arised a
 
 **Resource** - in a broad sense. It could be an event, another service, a database, visual object on a scene, file, unmanaged data.
 
-Usually there're several pain-points in dispose:
+Following pain points are related to resource management:
+* Store or pass dependencies that you only need for dispose logic: events, connections
+* Dispose actions need to be in a certain order
+* Forget to dispose some of resources, which resoults ie in memory leaks
+* Disposing resources that weren't allocated yet
+* Degrade gracefully during exceptional situation
 
-* Store or pass `Dispose` dependencies: events, connections
-* Make disposals in certain order
-* Forget to dispose (common inspection in static analysis tools)
-* To not dispose resources that weren't allocated yet
-* Gracefully dispose in exceptional situation
-* Not all dependencies implement `IDisposable` (static analysis won't help in that case)
-
-Often proper maintenance of all of the mentioned points is not that simple task. Moreover, when you get all things covered, you'll probably find your code "polluted".
+Often proper maintenance of all of the mentioned points is not that simple task. Moreover, when you get all things covered, you'll likely find your code "polluted".
 
 Hard-coded `Dispose` method:
 
@@ -59,7 +58,7 @@ Here we need to store `buttonOnClick` event and `assetBundle` to cleanup. But we
 
 ``` csharp
 class MyService {
-  public async Task Flow(AssetBundle bundle, Button button, Scope scope) {
+  public async Task Flow(AssetBundle bundle, Button button, IScope scope) {
     bundle.Load();
     scope.Add(b => b.Unload(), bundle);
 
@@ -87,20 +86,18 @@ Internally it's a stack of `IDisposable`. A dependency that you could pass to co
   * You know how to shut down the feature. It helps you to divide the "suspects" and find the source of issues
   * Logic is more future-proof. ~~If~~ When you change the way or moment when it needs to be disposed
 
-### Let's dive into code
-
 ## Create a `Scope`
 
 ``` csharp
-var scope = new Scope(out IDisposable disposeScope);
+var scope = new IScope(out IDisposable disposeScope);
 ```
 
-`disposeScope` is a handle which is triggers all disposables collected in Scope. The scope executes the disposals in a stack-like order.
+`disposeScope` is a handle which is triggers all disposables collected in IScope. The scope executes the disposals in a stack-like order.
 
 ## Add dispose logic
 
 ``` csharp
-void SomeMethod(Scope scope) {
+void SomeMethod(IScope scope) {
     var instance = Object.Instantiate(prefab);
 
     // add as IDisposable
@@ -114,16 +111,8 @@ void SomeMethod(Scope scope) {
 
 ## Plays well with `using`
 
-Factory method made to return `IDisposable`
-
 ``` csharp
-static IDisposable New(out Scope scope)
-```
-
-`IDisposable` then could be used in `using` statement, and omited:
-
-``` csharp
-using (Scope.New(out Scope mainScope)) { // New() returns IDisposable
+using (Scope.New(out IScope mainScope)) { // New() returns IDisposable
     ShowStartPopup(scope);
     SpawnCharacter(scope);
     // ...
@@ -134,7 +123,7 @@ using (Scope.New(out Scope mainScope)) { // New() returns IDisposable
 
 ``` csharp
 async Task StartLevelAsync(){
-  using (Scope.New(out Scope mainScope)) { 
+  using (Scope.New(out IScope mainScope)) { 
       ShowStartPopup(scope);
       SpawnCharacter(scope);
       await StartLevelAsync(scope);
@@ -147,7 +136,7 @@ async Task StartLevelAsync(){
 Sub-scopes are useful to be able to close some features separately. Yet not losing the upper scope disposal. <>
 
 ``` csharp
-using (scope.SubScope(out Scope popupScope)){
+using (scope.SubScope(out IScope popupScope)){
     await ShowStartPopupAsync(popupScope); // popup scope will close 
 } // will dispose popupScope separately
 ```
@@ -157,7 +146,7 @@ using (scope.SubScope(out Scope popupScope)){
 Usage:
 
 ``` csharp
-async Task FlowAsync(Scope scope){
+async Task FlowAsync(IScope scope){
     // await ...
     scope.ThrowIfDisposed();
 }
@@ -173,7 +162,7 @@ Let's consider Photon API (network API)
 ```
 
 ```csharp
- TODO: could become Scoped room api
+ TODO: could become IScoped room api
 ```
 
 ## Force to give a scope to an entity
@@ -190,7 +179,7 @@ You could use scope's disposal as a CancellationTokenSource.
 Although it's not included, you could write your own extension method:
 
 ``` csharp
-static void ThrowIfDisposed(this Scope scope){
+static void ThrowIfDisposed(this IScope scope){
     if (scope.IsDisposed)
         throw new OperationCanceledException();
 }
@@ -207,7 +196,7 @@ static void ThrowIfDisposed(this Scope scope){
   While the latter is easier to call, it will force you to make excessive closures.
   You could use former to define explicitly the object(s) you need. If you need multiple,you could use ValueTuples.
 
-* ### How to unsubscribe in-between from Scope
+* ### How to unsubscribe in-between from IScope
 
   Keep `IDisposable` which you passed to `scope.Add` and pass it to `scope.Remove`. Although it's not a common situation, but sometimes needed, ie the sub-scope uses it to remove itself if it was disposed before the parent scope
 
@@ -246,6 +235,6 @@ class MyFeature {
 
 * ### Sample: make your level restartable without reloading the scene
 
-* ### Scopes for better public API. Explicit OnClose event
+* ### IScopes for better public API. Explicit OnClose event
 
 * ### Rich debugging tools. Active scopes hierarchy, associated resources via [Calller*] attributes
