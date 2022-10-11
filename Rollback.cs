@@ -1,3 +1,9 @@
+// ----------------------------------------------------------------------------
+// The MIT License
+// Rollback https://github.com/korchoon/rollback
+// Copyright (c) 2016-2022 Mikhail Korchun <korchoon@gmail.com>
+// ----------------------------------------------------------------------------
+
 using System;
 
 public interface IRollback
