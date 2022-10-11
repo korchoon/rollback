@@ -1,6 +1,6 @@
-# IScopes - a better way to Dispose
+# Rollback - a better way to Dispose
 
-The IScope is new resource management, decoupling pattern, an alternative to Dispose. 
+The Rollback is new resource management, decoupling pattern, an alternative to Dispose. 
 It's a container where you put actions that will be executed on Dispose.
 
 The examples are intented for Unity developers. However, source code doesn't have any dependencies, so you could use it in vanilla C#.
@@ -54,23 +54,23 @@ class MyService : IDisposable {
 }
 ```
 
-Here we need to store `buttonOnClick` event and `assetBundle` to cleanup. But we could add `Scope` as an argument and put disposal logic as we go along, instead of hard-coding it in `Dispose`:
+Here we need to store `buttonOnClick` event and `assetBundle` to cleanup. But we could add `Rollback` as an argument and put disposal logic as we go along, instead of hard-coding it in `Dispose`:
 
 ``` csharp
 class MyService {
-  public async Task Flow(AssetBundle bundle, Button button, IScope scope) {
+  public async Task Flow(AssetBundle bundle, Button button, IRollback rollback) {
     bundle.Load();
-    scope.Add(b => b.Unload(), bundle);
+    rollback.Add(b => b.Unload(), bundle);
 
     button.onClick.AddListener(OnClick);
-    scope.Add((e, action) => e.RemoveListener(action), (button.onClick, OnClick));
+    rollback.Add((e, action) => e.RemoveListener(action), (button.onClick, OnClick));
   }
 }
 ```
 
-## What is a `Scope`?
+## What is a `Rollback`?
 
-`Scope` is an <span id="a1">[inverse of IDisposable](#f1)</span>.
+`Rollback` is an <span id="a1">[inverse of IDisposable](#f1)</span>.
 
 Or you could think of it as an `IObservable<IDisposable>` that you could subscribe to.
 
@@ -86,59 +86,53 @@ Internally it's a stack of `IDisposable`. A dependency that you could pass to co
   * You know how to shut down the feature. It helps you to divide the "suspects" and find the source of issues
   * Logic is more future-proof. ~~If~~ When you change the way or moment when it needs to be disposed
 
-## Create a `Scope`
+## Create a `Rollback`
 
 ``` csharp
-var scope = new IScope(out IDisposable disposeScope);
+var rollback = new Rollback();
 ```
 
-`disposeScope` is a handle which is triggers all disposables collected in IScope. The scope executes the disposals in a stack-like order.
+`rollback` is a handle which is triggers all disposables collected in IRollback. The rollback executes the disposals in a stack-like order.
 
 ## Add dispose logic
 
 ``` csharp
-void SomeMethod(IScope scope) {
+void SomeMethod(IRollback rollback) {
     var instance = Object.Instantiate(prefab);
-
-    // add as IDisposable
-    IDisposable disposeInstance = new Disposable<GameObject>(g => Object.Destroy(g), instance);
-    scope.Add(disposeInstance);
-
-    // or use the helper extension
-    scope.Add(g => Object.Destroy(g), instance); // 2
+    rollback.Defer(g => Object.Destroy(g), instance); // 2
 }
 ```
 
 ## Plays well with `using`
 
 ``` csharp
-using (Scope.New(out IScope mainScope)) { // New() returns IDisposable
-    ShowStartPopup(scope);
-    SpawnCharacter(scope);
+using (var childRollback = mainRollback.Open()) { 
+    ShowStartPopup(childRollback);
+    SpawnCharacter(childRollback);
     // ...
-} // disposes the mainScope
+} // disposes the childRollback, but keeps mainRollback
 ```
 
 ## Plays well with `async`
 
 ``` csharp
 async Task StartLevelAsync(){
-  using (Scope.New(out IScope mainScope)) { 
-      ShowStartPopup(scope);
-      SpawnCharacter(scope);
-      await StartLevelAsync(scope);
+  using (var childRollback = rollback.Open()) { 
+      ShowStartPopup(childRollback);
+      SpawnCharacter(childRollback);
+      await StartLevelAsync(childRollback);
   } 
 }
 ```
 
-## Create sub-scopes
+## Create child rollbacks
 
-Sub-scopes are useful to be able to close some features separately. Yet not losing the upper scope disposal. <>
+Sub-rollbacks are useful to be able to close some features separately. Yet not losing the upper rollback disposal. <>
 
 ``` csharp
-using (scope.SubScope(out IScope popupScope)){
-    await ShowStartPopupAsync(popupScope); // popup scope will close 
-} // will dispose popupScope separately
+using (var popupRollback = rollback.OpenRollback()){
+    await ShowStartPopupAsync(popupRollback); // popup rollback will close 
+} // will dispose popupRollback separately
 ```
 
 ## Use it like a cancellation token
@@ -146,9 +140,10 @@ using (scope.SubScope(out IScope popupScope)){
 Usage:
 
 ``` csharp
-async Task FlowAsync(IScope scope){
+async Task FlowAsync(IRollback rollback){
     // await ...
-    scope.ThrowIfDisposed();
+    rollback.ThrowIfDisposed();
+    // await ...
 }
 ```
 
@@ -157,84 +152,25 @@ async Task FlowAsync(IScope scope){
 
 Let's consider Photon API (network API)
 
-```csharp
- TODO: flat singleton room-related methods 
-```
+## Force to give a rollback to an entity
+
+Subscribe to event with a rollback
 
 ```csharp
- TODO: could become IScoped room api
-```
-
-## Force to give a scope to an entity
-
-Subscribe to event with a scope
-
-```csharp
-void OnNext<T>(Action<T> listener, IScope scope);
+void OnNext<T>(Action<T> listener, IRollback rollback);
 ```
 
 ## Cancellation token alternative
 
-You could use scope's disposal as a CancellationTokenSource.
+You could use rollback's disposal as a CancellationTokenSource.
 Although it's not included, you could write your own extension method:
 
 ``` csharp
-static void ThrowIfDisposed(this IScope scope){
-    if (scope.IsDisposed)
+static void ThrowIfDisposed(this IRollback rollback){
+    if (rollback.IsDisposed)
         throw new OperationCanceledException();
 }
 ```
 
 ## FAQ
-
-* ### Why `Scope` doesn't implement `IDisposable`?
-
-  To split responsibilities of subscribing and invoking. Ie, in Reactive Extensions mixing `IObservable` and `IObserver` into a single class (`Subject`) considered as a bad practice.
-
-* ### Why `Scope.Add<T>(Action<T>, T)`, not just `Scope.Add(Action)`?
-
-  While the latter is easier to call, it will force you to make excessive closures.
-  You could use former to define explicitly the object(s) you need. If you need multiple,you could use ValueTuples.
-
-* ### How to unsubscribe in-between from IScope
-
-  Keep `IDisposable` which you passed to `scope.Add` and pass it to `scope.Remove`. Although it's not a common situation, but sometimes needed, ie the sub-scope uses it to remove itself if it was disposed before the parent scope
-
-* ### Why disposals should execute in reverse (stack-like) order?
-
-  Since it's common way to model a hierarchy
-
-## <b id="f1"> Inverse of `IDisposable` </b>  [↩ back](#a1)
-
-``` csharp
-class MyFeature : IDisposable{
-  GameObject instance;
-
-  void Init(GameObject prefab){
-    instance = Instantiate(prefab);
-  }
-
-  void Dispose(){
-    Destroy(this.instance);
-  }
-}
-```
-
-Could be written as:
-
-``` csharp
-class MyFeature {
-  void Init(GameObject prefab, IScope scope){
-    instance = Instantiate(prefab);
-    scope.Add(instance.ToDisposable(g => Destroy(g)));
-  }
-}
-```
-
-## Further topics
-
-* ### Sample: make your level restartable without reloading the scene
-
-* ### IScopes for better public API. Explicit OnClose event
-
-* ### Rich debugging tools. Active scopes hierarchy, associated resources via [Calller*] attributes
+TODO
