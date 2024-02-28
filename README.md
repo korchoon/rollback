@@ -37,6 +37,8 @@ IEnumerator ShowPopup(Rollback popupRollback) {
 	yield return new WaitForSeconds(fxInstance.Delay);
 }
 ```
+Presentation (PDF) : https://github.com/korchoon/rollback/blob/main/Readme/Rollback%20article.pdf
+
 
 1. Main differences to Dispose
     1. don’t need to store dependencies you need only in Dispose(or similar) 
